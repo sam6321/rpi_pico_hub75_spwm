@@ -35,7 +35,7 @@ pico_sdk_init()
 
 # Add executable. Default name is the project name, version 0.1
 
-add_executable(pico_dp3364 pico_dp3264.c )
+add_executable(pico_dp3364 main.c)
 
 pico_set_program_name(pico_dp3364 "pico_dp3364")
 pico_set_program_version(pico_dp3364 "0.1")
@@ -46,7 +46,7 @@ pico_enable_stdio_usb(pico_dp3364 0)
 
 # Add the standard library to the build
 target_link_libraries(pico_dp3364
-        pico_stdlib)
+        pico_stdlib hardware_pio)
 
 # Add the standard include files to the build
 target_include_directories(pico_dp3364 PRIVATE
