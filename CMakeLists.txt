@@ -46,7 +46,7 @@ pico_enable_stdio_usb(pico_dp3364 0)
 
 # Add the standard library to the build
 target_link_libraries(pico_dp3364
-        pico_stdlib hardware_pio)
+        pico_stdlib pico_multicore hardware_pio)
 
 # Add the standard include files to the build
 target_include_directories(pico_dp3364 PRIVATE
