@@ -74,7 +74,7 @@ static void core1_entry() {
         dp3364_vsync();
         for (uint line = 0; line < 32; line++) {
             for (uint col = 0; col < 16; col++) { // column within driver chip
-                for (uint ch = 1; ch <= DP3364_NUM_CHANNELS; ch++) { // throughout each driver chip
+                for (uint ch = 1; ch <= CHAINED_DP3364_NUM; ch++) { // throughout each driver chip
                     uint8_t x = ((ch - 1) * 16) + col;   // global X (0..127)
 
                     // low half
@@ -93,13 +93,12 @@ static void core1_entry() {
                         fb[idx_hi + 2]
                     };
                     
-                    bool latch = ch == DP3364_NUM_CHANNELS;
+                    bool latch = ch == CHAINED_DP3364_NUM;
 
                     dp3364_panel_draw(rgb_lo, rgb_hi, latch);
                 }
             }
-            dp3364_change_row(line);
-            dp32020_advance_row(line);
+            led_panel_advance_row(line);
 
             const uint clk_cycles_per_line = (2 * (0x0 + 1) + 2 * (0x8 + 1) + 4 * (0x7f + 1)) / (0b010 + 1);
             

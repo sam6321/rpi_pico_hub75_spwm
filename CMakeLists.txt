@@ -43,7 +43,7 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(minigif)
 
 # Add executable. Default name is the project name, version 0.1
-add_executable(pico_dp3364 main.c)
+add_executable(pico_dp3364 main.c led_panel.c)
 
 pico_set_program_name(pico_dp3364 "pico_dp3364")
 pico_set_program_version(pico_dp3364 "0.1")
