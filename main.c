@@ -1,16 +1,24 @@
 #include <stdio.h>
+#include <string.h>
 #include "pico/stdlib.h"
 #include "pico/multicore.h"
 #include "hardware/clocks.h"
 #include "led_panel.h"
-#include "minigif.h"
-#include "gif.h"
 
 static mutex_t frame_buff_mtx;
 static uint16_t frame_buf_a[MATRIX_WIDTH * MATRIX_HEIGHT * 3];
 static uint16_t frame_buf_b[MATRIX_WIDTH * MATRIX_HEIGHT * 3];
 static uint16_t *display_buf = frame_buf_a;  // used by display_routine()
 static uint16_t *tmp_buf = frame_buf_b;      // used by painter_cb()
+
+#define STATIC_COLORS_DEMO (0U)
+#define GIF_FILE_DEMO (1U)
+
+#define DEMO_TYPE STATIC_COLORS_DEMO
+
+#if DEMO_TYPE == GIF_FILE_DEMO
+#include "minigif.h"
+#include "gif.h"
 
 typedef struct {
     const uint8_t *data;
@@ -63,6 +71,7 @@ static void _painter_cb(uint16_t x, uint16_t y, gif_rgb_t rgb, void *user_data) 
     tmp_buf[idx + 1] = rgb.g << 6;
     tmp_buf[idx + 2] = rgb.b << 6;
 }
+#endif // DEMO_TYPE == GIF_FILE_DEMO
 
 static void core1_entry() {
     dp3364_init();
@@ -115,7 +124,7 @@ static uint32_t get_time_ms() {
 }
 
 int main() {
-    set_sys_clock_hz(200 * MHZ, true);
+    set_sys_clock_hz(240 * MHZ, true);
     stdio_init_all();
 
     // init pins 0..13 as outputs
@@ -133,8 +142,9 @@ int main() {
     memset(frame_buf_b, 0, sizeof(frame_buf_b));
     mutex_init(&frame_buff_mtx);
 
-    static memfile_t gif_mem = {
-        .data = gif_file,
+#if DEMO_TYPE == GIF_FILE_DEMO
+static memfile_t gif_mem = {
+    .data = gif_file,
         .size = sizeof(gif_file),
         .pos = 0
     };
@@ -150,11 +160,34 @@ int main() {
 
     gif_handle_t gif = minigif_init(gif_buf, &gif_mem, gif_cb);
     assert(gif != NULL);
-
+#else
+    for (size_t i = 0; i < MATRIX_WIDTH * MATRIX_HEIGHT; i++) {
+        size_t idx = i * 3;
+        switch ((i / MATRIX_WIDTH) % 3) {
+            case 0:
+                frame_buf_a[idx + 0] = 0xff << 6; // R
+                frame_buf_a[idx + 1] = 0;   // G
+                frame_buf_a[idx + 2] = 0;   // B
+                break;
+            case 1:
+                frame_buf_a[idx + 0] = 0;   // R
+                frame_buf_a[idx + 1] = 0xff << 6; // G
+                frame_buf_a[idx + 2] = 0;   // B
+                break;
+            case 2:
+                frame_buf_a[idx + 0] = 0;   // R
+                frame_buf_a[idx + 1] = 0;   // G
+                frame_buf_a[idx + 2] = 0xff << 6; // B
+                break;
+        }
+    }
+#endif // DEMO_TYPE == GIF_FILE_DEMO
+    
     static uint32_t core1_stack[256];
     multicore_launch_core1_with_stack(core1_entry, core1_stack, 1024);
 
     while (1) {
+#if DEMO_TYPE == GIF_FILE_DEMO
         uint32_t t0 = get_time_ms();
 
         gif_status_t ret = minigif_render_frame(gif);
@@ -177,6 +210,7 @@ int main() {
         uint32_t task_delay_ms = gif_delay_ms > delta ? gif_delay_ms - delta : 1;
         
         busy_wait_ms(task_delay_ms);
+#endif // DEMO_TYPE == GIF_FILE_DEMO
     }
 
     return 0;
