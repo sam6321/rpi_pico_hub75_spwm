@@ -1,0 +1,98 @@
+;
+; hub75_pio.pio  –  HUB75 colour data + CLK + LE for DP3364S panels.
+;
+; GPIO assignments (configured in dp3364_pio_init):
+;   OUT  base=0  count=13  → GPIO 0-12
+;     GPIO 0-5:   R1/G1/B1/R2/G2/B2 colour data.
+;     GPIO 6-10:  inside OUT range but remain in SIO mode — PIO drives the
+;                 register but the pad is SIO-owned, so these bits have no
+;                 physical effect.  GPIO 6-8 are the DP32020 row-driver
+;                 pins (DCK/RCK/DAT), GPIO 9 is OE (output enable), GPIO 10
+;                 is unused.
+;     GPIO 11:    CLK – also in OUT range, but OVERRIDDEN by the side-set.
+;     GPIO 12:    LE  – driven by OSR bit 12 (CPU sets this before each push).
+;   SIDE base=11 count=1   → GPIO 11 (CLK)
+;
+; FIFO word format:
+;   bits [5:0]  = colour (R1/G1/B1/R2/G2/B2)
+;   bits [11:6] = 0
+;   bit  [12]   = LE (1 on the last CLK of each 64-byte chip group)
+;
+;   The pre-serialised (PS) buffer stores LE at bit 6 (PS_LE_BIT = 0x40).
+;   Before pushing the CPU moves LE from bit 6 to bit 12:
+;     word = (byte & 0x3F) | (((byte >> 6) & 1) << 12)
+;
+; LE mechanism:
+;   `out pins, 13` drives GPIO 0-12 in one instruction.  GPIO 12 (LE) is
+;   high only for the one byte per 64-byte group where the PS buffer has
+;   PS_LE_BIT set.  No counter state is needed; LE cannot drift across
+;   dp3364_pio_pause() / dp3364_pio_resume() calls.
+;
+; Timing (PIO at 80 MHz, clkdiv = 3.0, 12.5 ns per cycle):
+;   Every byte:  9 cycles × 12.5 ns = 112.5 ns  → ~8.9 MHz DCLK
+;   CLK HIGH:    2 cycles × 12.5 ns = 25 ns     (matches CPU clock_pulse baseline)
+;   Data setup:  2 cycles × 12.5 ns = 25 ns before CLK rising  ✓  (2× nop side 0)
+;   LE hold:     2 cycles × 12.5 ns = 25 ns after CLK falls    ✓  (2× nop side 0)
+;   Return-to-zero: 1 cycle × 12.5 ns after LE hold, before next byte's `out`
+;
+; NOTE: `out pins, 13` updates GPIOs at the END of its cycle, so only the
+; cycles AFTER it (before CLK rises) count as data setup.  Two `nop side 0`
+; cycles give 25 ns, matching the CPU baseline's clock_delay() of ~25 ns.
+; One `nop side 0` (12.5 ns) was insufficient — the DP3364S on this panel
+; requires the full 25 ns margin, particularly for the two chip groups
+; nearest to DIN (ch=2 and ch=3) where signal edges are freshest.
+;
+; LE hold was previously only 1 cycle (12.5 ns) — asymmetric with the 25 ns
+; data-setup margin above.  LE latches once per column (every 64 bytes = 4
+; chained chips x 16-bit word) and the very next cycle immediately starts
+; shifting the NEXT column's data at full speed, with zero settle gap.  The
+; chip farthest down the chain (ch=1, the LEFTMOST column — sent first, so
+; pushed furthest by subsequent shifts) sees the most cumulative propagation
+; delay, and its LE-hold margin shrinks further as the board warms up during
+; operation — a plausible cause of a single-channel (R) dropout that only
+; appears after a period of continuous running.  Extending LE hold to a full
+; 25 ns (matching the CPU baseline symmetrically on both edges) trades a
+; little frame rate for hold-time margin on the chip most likely to need it.
+;
+; RETURN-TO-ZERO (added after observing flicker that only occurs when pixel
+; VALUES change frame-to-frame, never on a static repeated pattern — a
+; classic inter-symbol-interference / crosstalk signature, not a generic
+; setup/hold-speed issue).  The CPU baseline's bit-clocking loop
+; (dp3364_panel_draw in the original pi-fully-working code) calls
+; gpio_clr_mask() after EVERY bit, structurally returning all colour+LE
+; lines to 0 before the next bit's real value is ever asserted.  Our PIO
+; program previously drove value → value directly with no quiet interval,
+; which the CPU baseline never did.  `mov pins, null` (does not touch the
+; OSR/FIFO, so it can't disturb the LE-hold or pause/resume mechanics) zeroes
+; GPIO 0-12 for one cycle at the end of every byte, restoring that
+; return-to-zero behaviour and giving the bus a clean reference level to
+; settle to between changing symbols.
+;
+; Frame-rate estimate (clkdiv = 3.0):
+;   Row data:  1024 CLKs × 112.5 ns ≈ 115.2 µs
+;   Row CPU:   ROW + DCK + 8 CLKs  ≈   5.0 µs
+;   Full frame: 64 × (115.2 + 5.0) µs ≈ 7.7 ms → ~130 Hz
+;
+
+.program hub75_data
+.side_set 1   ; GPIO 11 = CLK
+
+.wrap_target
+    pull block          side 0   ; wait for FIFO word; CLK = 0
+    out  pins, 13       side 0   ; GPIO 0-12 ← OSR bits[12:0]; CLK = 0
+                                 ;   bit 12 → LE, bits 0-5 → colour
+                                 ;   GPIOs update at END of this cycle.
+    nop                 side 0   ; data-setup cycle 1; CLK = 0  (12.5 ns elapsed)
+    nop                 side 0   ; data-setup cycle 2; CLK = 0  (25 ns total) ✓
+    nop                 side 1   ; CLK = 1, cycle 1  (DP3364S samples; 25 ns setup)
+    nop                 side 1   ; CLK = 1, cycle 2  (25 ns CLK-high total)
+    nop                 side 0   ; CLK = 0; LE-hold cycle 1 (12.5 ns after CLK falls)
+    nop                 side 0   ; CLK = 0; LE-hold cycle 2 (25 ns total) ✓
+                                 ;   For LE bytes: LE=1 for both of these cycles.
+    mov  pins, null     side 0   ; return-to-zero: clear colour+LE for one cycle
+                                 ;   before the next byte's `out pins,13` asserts
+                                 ;   its (possibly different) value.  For LE bytes
+                                 ;   this also cleanly drops LE back to 0, so
+                                 ;   dp3364_pio_pause()'s forced-clear `out` deals
+                                 ;   with an already-zero OSR either way.
+.wrap

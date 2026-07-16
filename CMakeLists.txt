@@ -42,29 +42,64 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(minigif)
 
-# Add executable. Default name is the project name, version 0.1
-add_executable(pico_dp3364 main.c led_panel.c)
+# -----------------------------------------------------------------------
+# Two targets built from the SAME source tree (main.c, led_panel.c), swapped
+# via the HUB75_DRIVER compile definition (see led_panel.h):
+#   pico_dp3364_pio  – PIO-accelerated driver (fast, current focus)
+#   pico_dp3364_cpu  – CPU bit-banged driver (original baseline, useful as
+#                       a control experiment for symptoms that might be
+#                       hardware/wiring-related rather than PIO-specific)
+# -----------------------------------------------------------------------
 
-pico_set_program_name(pico_dp3364 "pico_dp3364")
-pico_set_program_version(pico_dp3364 "0.1")
+add_executable(pico_dp3364_pio main.c led_panel.c)
 
-# Modify the below lines to enable/disable output over UART/USB
-pico_enable_stdio_uart(pico_dp3364 0)
-pico_enable_stdio_usb(pico_dp3364 0)
+# Compile the PIO assembly and generate the header hub75_pio.pio.h
+pico_generate_pio_header(pico_dp3364_pio ${CMAKE_CURRENT_LIST_DIR}/hub75_pio.pio)
 
-# Add the standard library to the build
-target_link_libraries(pico_dp3364 minigif_lib
+pico_set_program_name(pico_dp3364_pio "pico_dp3364_pio")
+pico_set_program_version(pico_dp3364_pio "0.1")
+
+pico_enable_stdio_uart(pico_dp3364_pio 0)
+pico_enable_stdio_usb(pico_dp3364_pio 0)
+
+target_link_libraries(pico_dp3364_pio minigif_lib
         pico_stdlib pico_multicore hardware_pio)
 
-# Add the standard include files to the build
-target_include_directories(pico_dp3364 PRIVATE
+target_include_directories(pico_dp3364_pio PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}
 )
 
-target_compile_definitions(pico_dp3364 PRIVATE
+target_compile_definitions(pico_dp3364_pio PRIVATE
         MATRIX_WIDTH=128
         MATRIX_HEIGHT=64
+        HUB75_DRIVER=1   # HUB75_DRIVER_PIO
 )
 
-pico_add_extra_outputs(pico_dp3364)
+pico_add_extra_outputs(pico_dp3364_pio)
+
+# -----------------------------------------------------------------------
+
+add_executable(pico_dp3364_cpu main.c led_panel.c)
+
+pico_set_program_name(pico_dp3364_cpu "pico_dp3364_cpu")
+pico_set_program_version(pico_dp3364_cpu "0.1")
+
+pico_enable_stdio_uart(pico_dp3364_cpu 0)
+pico_enable_stdio_usb(pico_dp3364_cpu 0)
+
+# No hardware_pio needed — the CPU driver never touches the PIO peripheral.
+target_link_libraries(pico_dp3364_cpu minigif_lib
+        pico_stdlib pico_multicore)
+
+target_include_directories(pico_dp3364_cpu PRIVATE
+        ${CMAKE_CURRENT_LIST_DIR}
+)
+
+target_compile_definitions(pico_dp3364_cpu PRIVATE
+        MATRIX_WIDTH=128
+        MATRIX_HEIGHT=64
+        HUB75_DRIVER=2   # HUB75_DRIVER_CPU
+)
+
+pico_add_extra_outputs(pico_dp3364_cpu)
 

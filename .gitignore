@@ -1,2 +1,15 @@
 build
 !.vscode/*
+
+# Build outputs — always regenerate these from source (see README) rather
+# than committing prebuilt binaries.
+*.uf2
+*.elf
+*.bin
+*.hex
+*.map
+*.dis
+
+# Editor/OS cruft
+*.pio_backup
+.DS_Store
