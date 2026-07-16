@@ -45,7 +45,7 @@ jobs:
       - name: Upload UF2 artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: pico_dp3364_pio.uf2
+          name: firmwares.zip
           path: |
             build/pico_dp3364_pio.uf2
             build/pico_dp3364_cpu.uf2
