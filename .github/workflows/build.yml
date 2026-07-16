@@ -17,10 +17,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Checkout Pico SDK
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: raspberrypi/pico-sdk
           ref: ${{ env.PICO_SDK_VERSION }}
@@ -43,9 +43,9 @@ jobs:
         run: cmake --build build --target pico_dp3364_pio pico_dp3364_cpu -j$(nproc)
 
       - name: Upload UF2 artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: firmwares
+          name: pico_dp3364_pio.uf2
           path: |
             build/pico_dp3364_pio.uf2
             build/pico_dp3364_cpu.uf2
